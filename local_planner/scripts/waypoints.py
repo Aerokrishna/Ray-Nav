@@ -12,21 +12,26 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 from nav_msgs.msg import Odometry
 import math
-from local_planner_interfaces.msg import Obstacle
+from local_planner_interfaces.msg import Obstacle, Waypoint
 from tf_transformations import euler_from_quaternion
 import numpy as np
+import time
 
 class IdealWaypoint(Node):
     def __init__(self):
-        super().__init__('lser_scan')
+        super().__init__('waypoints')
 
         # publishers and subscribers initialization
         self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
         self.obstacle_subscriber = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
         self.odom_subscriber = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
-        # self.marker_publisher_ = self.create_subscription(Obstacle,'obstacles',self.obstacle_callback,10)
+        self.obs_subscriber = self.create_subscription(Obstacle,'/obstacles',self.obstacle_callback,10)
+        self.marker_publisher_ = self.create_publisher(Marker,'/visualization_marker',10)
+        self.waypoint_publisher_ = self.create_publisher(Waypoint,'/waypoints',10)
         
-        # self.marker_timer = self.create_timer(0.1, self.marker_timer)
+        self.marker_timer_ = self.create_timer(0.1, self.marker_timer)
+
+        self.waypoint_timer_ = self.create_timer(0.1, self.waypoint_timer)
         self.tf_timer = self.create_timer(0.1, self.transform_point)
 
         # transformation 
@@ -35,45 +40,144 @@ class IdealWaypoint(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.range_data = []
-        self.goal = (5,5)
+        self.goal = (5.0,5.0)
 
         self.robot_x = 0.0
         self.robot_y = 0.0
         self.robot_yaw = 0.0
 
+        self.range_data = []
+        self.max_range = 5
+        
         self.get_logger().info("WAYPOINT COMPUTER ENABLED")
 
+        self.obstacle_x = []
+        self.obstacle_y = []
+
+        self.cnt = 0
+
+        self.wpx = 0.0
+        self.wpy = 0.0
+
+
+    def obstacle_callback(self,obs_msg: Obstacle):
+        self.obstacle_x = obs_msg.obstacles_x
+        self.obstacle_y = obs_msg.obstacles_y
+
+        # print(self.obstacle_x)
+    
+    def waypoint_timer(self):
+        self.cnt += 1
+        if self.cnt > 10:
+            waypoint = Waypoint()
+
+            self.wpx, self.wpy = self.get_waypoint()
+
+            waypoint.waypoint_x = self.wpx 
+            waypoint.waypoint_y = self.wpy
+
+            # self.get_logger().info(f"WAYPOINTS : {waypoint.waypoint_x, waypoint.waypoint_y}")
+            self.waypoint_publisher_.publish(waypoint)
+            self.cnt = 10
+
     def scan_callback(self, laser_msg : LaserScan):
-        range_data = laser_msg.ranges
-        max_range = 3
-        waypoint_thres = 1
 
-        goal_or = self.compute_vector((0,0),(self.goal[0],self.goal[1]))
+        self.range_data = laser_msg.ranges
+    
+    def get_waypoint(self):
 
-        scan_or = abs(goal_or - self.robot_yaw)
+        if self.get_ray(self.goal[0], self.goal[1]):
+            # print("haaa bhaaaii")
+            goal_or = self.compute_vector((self.robot_x,self.robot_y),(self.goal[0],self.goal[1]))
+
+            gx = self.robot_x + 2 * np.cos(goal_or)
+            gy = self.robot_y + 2 * np.sin(goal_or)
+
+            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 2.5:
+                gx,gy = self.goal
+
+            return gx,gy
+            # return self.goal
+        
+        obstacle_cost = {}
+        for i in range(len(self.obstacle_x)):
+            
+            obs_x = self.obstacle_x[i]
+            obs_y = self.obstacle_y[i]
+
+            obstacle_cost[self.get_cost(obs_x,obs_y)] = i
+        
+        sorted_cost = list(obstacle_cost.keys())
+        sorted_cost.sort()
+        
+        sorted_obstacle_cost = {i: obstacle_cost[i] for i in sorted_cost}
+        print("cost",obstacle_cost)
+        sorted_keys = list(sorted_obstacle_cost.values())
+        cnt = 0
+        for k in range(len(sorted_keys)):
+            cnt+=1
+            obs_x = self.obstacle_x[sorted_keys[k]]
+            obs_y = self.obstacle_y[sorted_keys[k]]
+
+            if self.get_ray(obs_x,obs_y):
+                # print('cnt',cnt)
+                break
+            
+        return obs_x,obs_y
+
+    def get_ray(self,wp_x, wp_y):
+        wp_or = self.compute_vector((self.robot_x, self.robot_y),(wp_x,wp_y))
+        if (wp_x,wp_y) == self.goal:
+            # print("AAAAAAAAAAA")
+            r = 5
+            index = 8
+
+        else:
+            r = self.get_distance(wp_x,wp_y,self.robot_x,self.robot_y)
+            r = min(1.3 * r, self.max_range)
+            index = round(np.rad2deg(np.arcsin(0.3/r)))
+            # self.get_logger().info(f"INDEX : {index}")
+        
+            
+        scan_or = abs(wp_or - self.robot_yaw)
         scan_or = np.rad2deg(scan_or)
         scan_index = round(scan_or)
+        # print('wp ',wp_or)
+        # print('scan index', scan_index)
+        a =[]
         safe = 0
+        for i in range(scan_index - index,scan_index + index):
+            if i > len(self.range_data)-1:
+                i -= len(self.range_data)
 
-        for i in range(scan_index - 7,scan_index + 7):
-            if i > len(range_data)-1:
-                i -= len(range_data)
-
-            if range_data[i] < max_range:
+            if self.range_data[i] < r:
                 safe+=1
+            a.append(self.range_data[i])
+        
+        # print('ray list',a)
+        if safe == 0: 
+            return True 
+        else: 
+            return False
 
-        if safe == 0:
-            waypoint = (waypoint_thres * np.cos(goal_or), waypoint_thres * np.sin(goal_or))
-            self.get_logger().info(f"waypoint : {waypoint}")
+    def get_cost(self,obs_x,obs_y):
 
-        # self.get_logger().info(f"scan index {scan_index}")
+        dr = self.get_distance(self.robot_x, self.robot_y, obs_x, obs_y)
+        dg = self.get_distance(obs_x, obs_y, self.goal[0], self.goal[1])
+
+        obs_or = self.compute_vector((self.robot_x, self.robot_y),(obs_x, obs_y))
+        control_effort = abs(1/obs_or)
+        
+        cost = dg + dr
+        return cost
+
 
     def compute_vector(self, vect1, vect2):
         return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
     
-    def obstacle_callback(self,obs_msg: Obstacle):
-        self.obstacle_x = obs_msg.obstacles_x
-        self.obstacle_y = obs_msg.obstacles_y
+    def get_distance(self,x1,y1,x2,y2):
+        return np.sqrt((x2-x1)**2 + (y2-y1)**2)
+    
 
     def odom_callback(self, odom: Odometry):
         self.robot_x = odom.pose.pose.position.x
@@ -93,23 +197,40 @@ class IdealWaypoint(Node):
         marker_msg.header.stamp = self.get_clock().now().to_msg()
         marker_msg.type = Marker.SPHERE
     
-        marker_msg.scale.x = 0.07
-        marker_msg.scale.y = 0.07
-        marker_msg.scale.z = 0.07
+        # marker_msg.scale.x = 0.07
+        # marker_msg.scale.y = 0.07
+        # marker_msg.scale.z = 0.07
 
-        marker_msg.color.r = 0.0
+        # marker_msg.color.r = 0.0
+        # marker_msg.color.g = 255.0
+        # marker_msg.color.b = 125.0
+        # marker_msg.color.a = 1.0
+
+        # for i in range(len(self.obstacle_x)):
+          
+        #     marker_msg.pose.position.x = self.obstacle_x[i]
+        #     marker_msg.pose.position.y = self.obstacle_y[i]
+        #     marker_msg.pose.orientation.w = 1.0
+
+        #     marker_msg.id = i+2
+        #     self.marker_publisher_.publish(marker_msg)
+        
+        marker_msg.scale.x = 0.09
+        marker_msg.scale.y = 0.09
+        marker_msg.scale.z = 0.09
+
+        marker_msg.color.r = 125.0
         marker_msg.color.g = 255.0
-        marker_msg.color.b = 125.0
+        marker_msg.color.b = 0.0
         marker_msg.color.a = 1.0
 
-        for i in range(len(self.obstacle_x)):
-          
-            marker_msg.pose.position.x = self.obstacle_x[i]
-            marker_msg.pose.position.y = self.obstacle_y[i]
-            marker_msg.pose.orientation.w = 1.0
+        marker_msg.pose.position.x = self.wpx
+        marker_msg.pose.position.y = self.wpy
+        marker_msg.pose.orientation.w = 1.0
 
-            marker_msg.id = i
-            self.marker_publisher_.publish(marker_msg)      
+        marker_msg.id = 0
+        self.marker_publisher_.publish(marker_msg)
+              
         
     # tranformation function
     def transform_point(self, local_x = 0.0, local_y = 0.0):

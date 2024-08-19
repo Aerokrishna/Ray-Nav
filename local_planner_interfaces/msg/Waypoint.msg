@@ -1,0 +1,2 @@
+float32 waypoint_x
+float32 waypoint_y

@@ -16,7 +16,7 @@ from local_planner_interfaces.msg import Obstacle
 
 class DetectObstacles(Node):
     def __init__(self):
-        super().__init__('laser_scan')
+        super().__init__('obstacles')
 
         # publishers and subscribers initialization
         self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
@@ -24,7 +24,7 @@ class DetectObstacles(Node):
         self.marker_publisher_ = self.create_publisher(Marker,'visualization_marker',10)
         self.obstacle_publisher_ = self.create_publisher(Obstacle,'obstacles',10)
         
-        self.marker_timer = self.create_timer(0.1, self.marker_timer)
+        # self.marker_timer = self.create_timer(0.1, self.marker_timer)
         self.tf_timer = self.create_timer(0.1, self.transform_point)
 
         # transformation 
@@ -40,7 +40,7 @@ class DetectObstacles(Node):
 
     def scan_callback(self, laser_msg : LaserScan):
         range_data = laser_msg.ranges
-        self.get_logger().info(f"angle_incr :{laser_msg.angle_increment}, max_range:{laser_msg.range_max}, length:{len(range_data)}")
+        # self.get_logger().info(f"angle_incr :{laser_msg.angle_increment}, max_range:{laser_msg.range_max}, length:{len(range_data)}")
 
         max_range = 5
 
@@ -124,7 +124,7 @@ class DetectObstacles(Node):
             marker_msg.pose.position.y = self.obstacle_y[i]
             marker_msg.pose.orientation.w = 1.0
 
-            marker_msg.id = i
+            marker_msg.id = i+1
             self.marker_publisher_.publish(marker_msg)      
         
     # tranformation function
@@ -148,7 +148,7 @@ class DetectObstacles(Node):
 
         except:
             self.get_logger().error("error!")
-            pass
+            return 0.0,0.0
 
     def get_distance(self,x1,y1,x2,y2):
         return math.sqrt((x2-x1)**2 + (y2-y1)**2)
