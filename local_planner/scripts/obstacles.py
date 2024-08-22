@@ -12,7 +12,9 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 from nav_msgs.msg import Odometry
 import math
+from tf_transformations import euler_from_quaternion
 from local_planner_interfaces.msg import Obstacle
+import numpy as np
 
 class DetectObstacles(Node):
     def __init__(self):
@@ -36,11 +38,17 @@ class DetectObstacles(Node):
         self.obstacle_y = []
         self.inf_radius = 0.3
 
-        self.get_logger().info("OBSTACLE DETECTION ENABLED")
+        self.robot_yaw = 0.0
+        self.robot_x = 0.0
+        self.robot_y = 0.0
+
+        # self.get_logger().info("OBSTACLE DETECTION ENABLED")
 
     def scan_callback(self, laser_msg : LaserScan):
-        range_data = laser_msg.ranges
-        # self.get_logger().info(f"angle_incr :{laser_msg.angle_increment}, max_range:{laser_msg.range_max}, length:{len(range_data)}")
+        self.range_data = laser_msg.ranges
+        self.angle_increament = laser_msg.angle_increment
+        self.angle_min = laser_msg.angle_min
+        # self.get_logger().info(f"angle_incr :{laser_msg.angle_increment}, max_range:{laser_msg.range_max}, length:{len(self.range_data)}")
 
         max_range = 5
 
@@ -48,49 +56,36 @@ class DetectObstacles(Node):
         self.obstacle_y = []
 
         # go through all the points in the point cloud array        
-        for i in range(1,len(range_data)):
+        for i in range(1,len(self.range_data)):
             j = i + 1
-            if j > len(range_data)-1:
+            if j > len(self.range_data)-1:
                 j = 0
 
-            range_val = range_data[i]
-            theta = laser_msg.angle_min + (i * laser_msg.angle_increment)
+            range_val = self.range_data[i]
+            theta = self.angle_min + (i * self.angle_increament)
             
-            if (range_data[i-1] > max_range and range_data[i] < max_range):
-                
-                local_x = range_val * math.cos(theta)
-                local_y = range_val * math.sin(theta)
+            if (self.range_data[i-1] > max_range and self.range_data[i] < max_range):
+                result, obs_range, obs_theta = self.check_inflation(range_val, theta, -1)
 
-                global_x,global_y = self.transform_point(local_x,local_y)
-                global_theta = math.atan2(global_y - self.robot_y, global_x - self.robot_x)
-
-                inf_x = self.inf_radius * math.sin(global_theta)
-                inf_y = self.inf_radius * math.cos(global_theta)
-
-                global_x += inf_x
-                global_y -= inf_y
-
-                self.obstacle_x.append(global_x)
-                self.obstacle_y.append(global_y)
+                if result == True:
+                    # means this point is safe
+                    obs_x, obs_y = self.scan_to_pose(obs_range, obs_theta)[:2]
+                    self.obstacle_x.append(obs_x)
+                    self.obstacle_y.append(obs_y)
             
-            elif (range_data[i] < max_range and range_data[j] > max_range):
-                
-                local_x = range_val * math.cos(theta)
-                local_y = range_val * math.sin(theta)
+            elif (self.range_data[i] < max_range and self.range_data[j] > max_range):
 
-                global_x,global_y = self.transform_point(local_x,local_y)
-                global_theta = math.atan2(global_y - self.robot_y, global_x - self.robot_x)
+                # global_x, global_y, global_theta = self.scan_to_pose(range_val, theta)
 
-                inf_x = self.inf_radius * math.sin(global_theta)
-                inf_y = self.inf_radius * math.cos(global_theta)
+                result, obs_range, obs_theta = self.check_inflation(range_val, theta, 1)
 
-                global_x -= inf_x
-                global_y += inf_y
+                if result == True:
+                    # means this point is safe
+                    obs_x, obs_y = self.scan_to_pose(obs_range, obs_theta)[:2]
+                    self.obstacle_x.append(obs_x)
+                    self.obstacle_y.append(obs_y)
 
-                self.obstacle_x.append(global_x)
-                self.obstacle_y.append(global_y)
-
-        # self.get_logger().info(f"(X,Y) = ({self.obstacle_x,self.obstacle_y})")
+        self.get_logger().info(f"(X,Y) = ({self.obstacle_x,self.obstacle_y})")
 
         obs_msg = Obstacle()
         obs_msg.obstacles_x = self.obstacle_x
@@ -98,9 +93,54 @@ class DetectObstacles(Node):
 
         self.obstacle_publisher_.publish(obs_msg)
 
+    def scan_to_pose(self, range_val, theta):
+        local_x = range_val * math.cos(theta)
+        local_y = range_val * math.sin(theta)
+
+        global_x,global_y = self.transform_point(local_x,local_y)
+        global_theta = math.atan2(global_y - self.robot_y, global_x - self.robot_x)
+
+        return global_x, global_y, global_theta
+
+    def check_inflation(self, point_range, theta, side):
+        # self.get_logger().info("CHECKING INFLATION")
+
+        scan_or = np.rad2deg(theta)
+        scan_index = round(scan_or)
+        # point_range = min(point_range,0.3)
+        # index = round(np.rad2deg(2 * np.arcsin(0.3/point_range))) # here considering robot requires 40cm to be safe,
+        index = round(np.rad2deg(0.6/point_range))
+        # a =[]
+        safe = 0
+        wp_range = point_range
+        wp_theta = 0
+        for i in range(scan_index ,scan_index + (side * index), side):
+            if i > len(self.range_data)-1:
+                i -= len(self.range_data)
+
+            if i == int((scan_index + (side * (index/2)))):
+                wp_theta = self.angle_min + (i * self.angle_increament)
+
+            if self.range_data[i] < point_range:
+                safe+=1
+            # a.append(self.range_data[i])
+        if safe <= 1:
+            return [True, wp_range, wp_theta]
+
+        return [False, wp_range, wp_theta]
+
+    def compute_vector(self, vect1, vect2):
+        return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
+    
     def odom_callback(self, odom: Odometry):
         self.robot_x = odom.pose.pose.position.x
         self.robot_y = odom.pose.pose.position.y
+        x = odom.pose.pose.orientation.x
+        y = odom.pose.pose.orientation.y
+        z = odom.pose.pose.orientation.z
+        w = odom.pose.pose.orientation.w
+
+        self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
 
     # function to publish visualization points on Rviz
     def marker_timer(self):

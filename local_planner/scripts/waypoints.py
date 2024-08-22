@@ -40,7 +40,7 @@ class IdealWaypoint(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.range_data = []
-        self.goal = (5.0,5.0)
+        self.goal = (4.0,0.0)
 
         self.robot_x = 0.0
         self.robot_y = 0.0
@@ -60,6 +60,10 @@ class IdealWaypoint(Node):
         self.wpy = 0.0
 
 
+        self.ox = 0.0
+        self.oy = 0.0
+
+
     def obstacle_callback(self,obs_msg: Obstacle):
         self.obstacle_x = obs_msg.obstacles_x
         self.obstacle_y = obs_msg.obstacles_y
@@ -76,7 +80,7 @@ class IdealWaypoint(Node):
             waypoint.waypoint_x = self.wpx 
             waypoint.waypoint_y = self.wpy
 
-            # self.get_logger().info(f"WAYPOINTS : {waypoint.waypoint_x, waypoint.waypoint_y}")
+            self.get_logger().info(f"WAYPOINTS : {waypoint.waypoint_x, waypoint.waypoint_y}")
             self.waypoint_publisher_.publish(waypoint)
             self.cnt = 10
 
@@ -85,9 +89,9 @@ class IdealWaypoint(Node):
         self.range_data = laser_msg.ranges
     
     def get_waypoint(self):
-
+        # print(self.get_ray(self.goal[0], self.goal[1]))
         if self.get_ray(self.goal[0], self.goal[1]):
-            # print("haaa bhaaaii")
+            # self.get_logger().info("GOAL MODE ACTIVATED")
             goal_or = self.compute_vector((self.robot_x,self.robot_y),(self.goal[0],self.goal[1]))
 
             gx = self.robot_x + 2 * np.cos(goal_or)
@@ -100,51 +104,82 @@ class IdealWaypoint(Node):
             # return self.goal
         
         obstacle_cost = {}
+        safe_wp_x = []
+        safe_wp_y = []
+
         for i in range(len(self.obstacle_x)):
             
             obs_x = self.obstacle_x[i]
             obs_y = self.obstacle_y[i]
 
+            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) > 1.5:
+                obs_or = self.compute_vector((self.robot_x,self.robot_y),(obs_x,obs_y))
+
+                obs_x = self.robot_x + np.cos(obs_or)
+                obs_y = self.robot_y + np.sin(obs_or)
+
+            safe_wp_x.append(obs_x)
+            safe_wp_y.append(obs_y)
+
             obstacle_cost[self.get_cost(obs_x,obs_y)] = i
-        
+
         sorted_cost = list(obstacle_cost.keys())
         sorted_cost.sort()
         
         sorted_obstacle_cost = {i: obstacle_cost[i] for i in sorted_cost}
-        print("cost",obstacle_cost)
+        
         sorted_keys = list(sorted_obstacle_cost.values())
-        cnt = 0
-        for k in range(len(sorted_keys)):
-            cnt+=1
-            obs_x = self.obstacle_x[sorted_keys[k]]
-            obs_y = self.obstacle_y[sorted_keys[k]]
 
-            if self.get_ray(obs_x,obs_y):
-                # print('cnt',cnt)
-                break
-            
+        cnt = 0
+        # for k in range(len(sorted_keys)):
+        #     cnt+=1
+        #     obs_x = self.obstacle_x[sorted_keys[k]]
+        #     obs_y = self.obstacle_y[sorted_keys[k]]
+
+        #     if self.get_ray(obs_x,obs_y):
+        #         print('cnt',cnt)
+        #         obs_x = safe_wp_x[sorted_keys[k]]
+        #         obs_y = safe_wp_y[sorted_keys[k]]
+        #         break
+        
+        # obs_x = self.obstacle_x[sorted_keys[0]]
+        # obs_y = self.obstacle_y[sorted_keys[0]]
+
+        # obs_or = self.compute_vector((self.robot_x,self.robot_y),(obs_x,obs_y))
+
+        # obs_x = self.robot_x + np.cos(obs_or)
+        # obs_y = self.robot_y + np.sin(obs_or)
+
+        # if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 1.5:
+        #     obs_x = self.obstacle_x[sorted_keys[0]]
+        #     obs_y = self.obstacle_y[sorted_keys[0]]
+
+        obs_x = safe_wp_x[sorted_keys[0]]
+        obs_y = safe_wp_y[sorted_keys[0]]
+
+        self.ox = self.obstacle_x[sorted_keys[0]]
+        self.oy = self.obstacle_y[sorted_keys[0]]
+
         return obs_x,obs_y
 
     def get_ray(self,wp_x, wp_y):
+        # self.get_logger().info("GET RAY")
+        r = 2
+        k = self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1])
         wp_or = self.compute_vector((self.robot_x, self.robot_y),(wp_x,wp_y))
-        if (wp_x,wp_y) == self.goal:
-            # print("AAAAAAAAAAA")
-            r = 5
-            index = 8
 
-        else:
-            r = self.get_distance(wp_x,wp_y,self.robot_x,self.robot_y)
-            r = min(1.3 * r, self.max_range)
-            index = round(np.rad2deg(np.arcsin(0.3/r)))
-            # self.get_logger().info(f"INDEX : {index}")
-        
-            
-        scan_or = abs(wp_or - self.robot_yaw)
+        if k < 2:
+            r = k
+        index = 8
+
+        scan_or = wp_or - self.robot_yaw
+        if scan_or < 0:
+            scan_or+=(2*np.pi)
+
         scan_or = np.rad2deg(scan_or)
         scan_index = round(scan_or)
-        # print('wp ',wp_or)
-        # print('scan index', scan_index)
-        a =[]
+
+        # a =[]
         safe = 0
         for i in range(scan_index - index,scan_index + index):
             if i > len(self.range_data)-1:
@@ -152,11 +187,15 @@ class IdealWaypoint(Node):
 
             if self.range_data[i] < r:
                 safe+=1
-            a.append(self.range_data[i])
+            # a.append(self.range_data[i])
         
-        # print('ray list',a)
         if safe == 0: 
-            return True 
+            # self.get_logger().info(f"RAY LIST {a}")
+            # self.get_logger().info(f"GOAL ORIENTATION {np.rad2deg(wp_or)}")
+            # self.get_logger().info(f"SCAN ORIENTATION {scan_or}")
+            # self.get_logger().info(f"ROBOT ORIENTATION {np.rad2deg(self.robot_yaw)}")
+            # print(r)
+            return True
         else: 
             return False
 
@@ -168,7 +207,7 @@ class IdealWaypoint(Node):
         obs_or = self.compute_vector((self.robot_x, self.robot_y),(obs_x, obs_y))
         control_effort = abs(1/obs_or)
         
-        cost = dg + dr
+        cost = (dg)
         return cost
 
 
@@ -197,14 +236,21 @@ class IdealWaypoint(Node):
         marker_msg.header.stamp = self.get_clock().now().to_msg()
         marker_msg.type = Marker.SPHERE
     
-        # marker_msg.scale.x = 0.07
-        # marker_msg.scale.y = 0.07
-        # marker_msg.scale.z = 0.07
+        marker_msg.scale.x = 0.09
+        marker_msg.scale.y = 0.09
+        marker_msg.scale.z = 0.09
 
-        # marker_msg.color.r = 0.0
-        # marker_msg.color.g = 255.0
-        # marker_msg.color.b = 125.0
-        # marker_msg.color.a = 1.0
+        marker_msg.color.r = 0.0
+        marker_msg.color.g = 255.0
+        marker_msg.color.b = 125.0
+        marker_msg.color.a = 1.0
+
+        marker_msg.pose.position.x = self.ox
+        marker_msg.pose.position.y = self.oy
+        marker_msg.pose.orientation.w = 1.0
+
+        marker_msg.id = 1
+        self.marker_publisher_.publish(marker_msg)
 
         # for i in range(len(self.obstacle_x)):
           
