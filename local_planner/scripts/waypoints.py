@@ -40,7 +40,7 @@ class IdealWaypoint(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.range_data = []
-        self.goal = (4.0,0.0)
+        self.goal = (5.0,4.0)
 
         self.robot_x = 0.0
         self.robot_y = 0.0
@@ -58,18 +58,19 @@ class IdealWaypoint(Node):
 
         self.wpx = 0.0
         self.wpy = 0.0
-
-
         self.ox = 0.0
         self.oy = 0.0
 
-
+    '''
+    A function to get the obstacle edges
+    '''
     def obstacle_callback(self,obs_msg: Obstacle):
         self.obstacle_x = obs_msg.obstacles_x
         self.obstacle_y = obs_msg.obstacles_y
 
-        # print(self.obstacle_x)
-    
+    '''
+    A function to publish the waypoint
+    '''
     def waypoint_timer(self):
         self.cnt += 1
         if self.cnt > 10:
@@ -80,17 +81,22 @@ class IdealWaypoint(Node):
             waypoint.waypoint_x = self.wpx 
             waypoint.waypoint_y = self.wpy
 
-            self.get_logger().info(f"WAYPOINTS : {waypoint.waypoint_x, waypoint.waypoint_y}")
+            # self.get_logger().info(f"WAYPOINTS : {waypoint.waypoint_x, waypoint.waypoint_y}")
             self.waypoint_publisher_.publish(waypoint)
             self.cnt = 10
-
+    '''
+    Lidar scan call back
+    '''
     def scan_callback(self, laser_msg : LaserScan):
 
         self.range_data = laser_msg.ranges
     
+    '''
+    To compute the waypoint with the lowest cost
+    '''
     def get_waypoint(self):
-        # print(self.get_ray(self.goal[0], self.goal[1]))
-        if self.get_ray(self.goal[0], self.goal[1]):
+
+        if self.get_goal_ray(self.goal[0], self.goal[1]):
             # self.get_logger().info("GOAL MODE ACTIVATED")
             goal_or = self.compute_vector((self.robot_x,self.robot_y),(self.goal[0],self.goal[1]))
 
@@ -101,7 +107,6 @@ class IdealWaypoint(Node):
                 gx,gy = self.goal
 
             return gx,gy
-            # return self.goal
         
         obstacle_cost = {}
         safe_wp_x = []
@@ -130,30 +135,6 @@ class IdealWaypoint(Node):
         
         sorted_keys = list(sorted_obstacle_cost.values())
 
-        cnt = 0
-        # for k in range(len(sorted_keys)):
-        #     cnt+=1
-        #     obs_x = self.obstacle_x[sorted_keys[k]]
-        #     obs_y = self.obstacle_y[sorted_keys[k]]
-
-        #     if self.get_ray(obs_x,obs_y):
-        #         print('cnt',cnt)
-        #         obs_x = safe_wp_x[sorted_keys[k]]
-        #         obs_y = safe_wp_y[sorted_keys[k]]
-        #         break
-        
-        # obs_x = self.obstacle_x[sorted_keys[0]]
-        # obs_y = self.obstacle_y[sorted_keys[0]]
-
-        # obs_or = self.compute_vector((self.robot_x,self.robot_y),(obs_x,obs_y))
-
-        # obs_x = self.robot_x + np.cos(obs_or)
-        # obs_y = self.robot_y + np.sin(obs_or)
-
-        # if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 1.5:
-        #     obs_x = self.obstacle_x[sorted_keys[0]]
-        #     obs_y = self.obstacle_y[sorted_keys[0]]
-
         obs_x = safe_wp_x[sorted_keys[0]]
         obs_y = safe_wp_y[sorted_keys[0]]
 
@@ -162,7 +143,10 @@ class IdealWaypoint(Node):
 
         return obs_x,obs_y
 
-    def get_ray(self,wp_x, wp_y):
+    '''
+    To check if the path to goal is obstacle free or not
+    '''
+    def get_goal_ray(self,wp_x, wp_y):
         # self.get_logger().info("GET RAY")
         r = 2
         k = self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1])
@@ -190,15 +174,13 @@ class IdealWaypoint(Node):
             # a.append(self.range_data[i])
         
         if safe == 0: 
-            # self.get_logger().info(f"RAY LIST {a}")
-            # self.get_logger().info(f"GOAL ORIENTATION {np.rad2deg(wp_or)}")
-            # self.get_logger().info(f"SCAN ORIENTATION {scan_or}")
-            # self.get_logger().info(f"ROBOT ORIENTATION {np.rad2deg(self.robot_yaw)}")
-            # print(r)
             return True
         else: 
             return False
-
+        
+    '''
+    To compute the cost of a potential waypoint
+    '''
     def get_cost(self,obs_x,obs_y):
 
         dr = self.get_distance(self.robot_x, self.robot_y, obs_x, obs_y)
@@ -209,15 +191,7 @@ class IdealWaypoint(Node):
         
         cost = (dg)
         return cost
-
-
-    def compute_vector(self, vect1, vect2):
-        return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
     
-    def get_distance(self,x1,y1,x2,y2):
-        return np.sqrt((x2-x1)**2 + (y2-y1)**2)
-    
-
     def odom_callback(self, odom: Odometry):
         self.robot_x = odom.pose.pose.position.x
         self.robot_y = odom.pose.pose.position.y
@@ -300,9 +274,12 @@ class IdealWaypoint(Node):
         except:
             self.get_logger().error("error!")
             pass
-
+    
+    def compute_vector(self, vect1, vect2):
+        return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
+    
     def get_distance(self,x1,y1,x2,y2):
-        return math.sqrt((x2-x1)**2 + (y2-y1)**2)
+        return np.sqrt((x2-x1)**2 + (y2-y1)**2)
     
 def main(args=None):
     rclpy.init(args=args)

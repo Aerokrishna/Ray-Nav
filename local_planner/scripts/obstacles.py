@@ -42,20 +42,22 @@ class DetectObstacles(Node):
         self.robot_x = 0.0
         self.robot_y = 0.0
 
-        # self.get_logger().info("OBSTACLE DETECTION ENABLED")
+        self.get_logger().info("OBSTACLE DETECTION ENABLED")
+
+    '''
+    A function to process scan data and publish obstacle edges
+    '''
 
     def scan_callback(self, laser_msg : LaserScan):
         self.range_data = laser_msg.ranges
         self.angle_increament = laser_msg.angle_increment
         self.angle_min = laser_msg.angle_min
-        # self.get_logger().info(f"angle_incr :{laser_msg.angle_increment}, max_range:{laser_msg.range_max}, length:{len(self.range_data)}")
 
         max_range = 5
 
         self.obstacle_x = []
         self.obstacle_y = []
 
-        # go through all the points in the point cloud array        
         for i in range(1,len(self.range_data)):
             j = i + 1
             if j > len(self.range_data)-1:
@@ -65,6 +67,7 @@ class DetectObstacles(Node):
             theta = self.angle_min + (i * self.angle_increament)
             
             if (self.range_data[i-1] > max_range and self.range_data[i] < max_range):
+
                 result, obs_range, obs_theta = self.check_inflation(range_val, theta, -1)
 
                 if result == True:
@@ -75,8 +78,6 @@ class DetectObstacles(Node):
             
             elif (self.range_data[i] < max_range and self.range_data[j] > max_range):
 
-                # global_x, global_y, global_theta = self.scan_to_pose(range_val, theta)
-
                 result, obs_range, obs_theta = self.check_inflation(range_val, theta, 1)
 
                 if result == True:
@@ -85,7 +86,7 @@ class DetectObstacles(Node):
                     self.obstacle_x.append(obs_x)
                     self.obstacle_y.append(obs_y)
 
-        self.get_logger().info(f"(X,Y) = ({self.obstacle_x,self.obstacle_y})")
+        # self.get_logger().info(f"(X,Y) = ({self.obstacle_x,self.obstacle_y})")
 
         obs_msg = Obstacle()
         obs_msg.obstacles_x = self.obstacle_x
@@ -93,27 +94,19 @@ class DetectObstacles(Node):
 
         self.obstacle_publisher_.publish(obs_msg)
 
-    def scan_to_pose(self, range_val, theta):
-        local_x = range_val * math.cos(theta)
-        local_y = range_val * math.sin(theta)
-
-        global_x,global_y = self.transform_point(local_x,local_y)
-        global_theta = math.atan2(global_y - self.robot_y, global_x - self.robot_x)
-
-        return global_x, global_y, global_theta
-
+    '''
+    A function to check if the obstacle edge is big enough to pass through
+    '''
     def check_inflation(self, point_range, theta, side):
-        # self.get_logger().info("CHECKING INFLATION")
-
+        
         scan_or = np.rad2deg(theta)
         scan_index = round(scan_or)
-        # point_range = min(point_range,0.3)
-        # index = round(np.rad2deg(2 * np.arcsin(0.3/point_range))) # here considering robot requires 40cm to be safe,
         index = round(np.rad2deg(0.6/point_range))
         # a =[]
         safe = 0
         wp_range = point_range
         wp_theta = 0
+
         for i in range(scan_index ,scan_index + (side * index), side):
             if i > len(self.range_data)-1:
                 i -= len(self.range_data)
@@ -129,9 +122,10 @@ class DetectObstacles(Node):
 
         return [False, wp_range, wp_theta]
 
-    def compute_vector(self, vect1, vect2):
-        return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
     
+    '''
+    Odometry Callback
+    '''
     def odom_callback(self, odom: Odometry):
         self.robot_x = odom.pose.pose.position.x
         self.robot_y = odom.pose.pose.position.y
@@ -142,7 +136,9 @@ class DetectObstacles(Node):
 
         self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
 
-    # function to publish visualization points on Rviz
+    '''
+    Visualization timer
+    '''
     def marker_timer(self):
         marker_msg = Marker()
         marker_msg.header.frame_id = "/odom" # wrt which frame we are taking the coordinates
@@ -165,21 +161,22 @@ class DetectObstacles(Node):
             marker_msg.pose.orientation.w = 1.0
 
             marker_msg.id = i+1
-            self.marker_publisher_.publish(marker_msg)      
-        
-    # tranformation function
+            self.marker_publisher_.publish(marker_msg)
+
+    '''
+    A helper fuction to transform point from base link to odom frame
+    '''
     def transform_point(self, local_x = 0.0, local_y = 0.0):
         local_point = PointStamped()
         local_point.header.frame_id = "base_link"
         
-        local_point.point.x = local_x  # Replace with your actual X coordinate
-        local_point.point.y = local_y  # Replace with your actual Y coordinate
-        local_point.point.z = 0.0  # Replace with your actual Z coordinate
+        local_point.point.x = local_x  
+        local_point.point.y = local_y  
+        local_point.point.z = 0.0  
         
         now = self.get_clock().now()
 
         try:
-            # Wait for the transform to become available for up to 1 second
             self.tf_buffer.lookup_transform("odom", "base_link",Time(nanoseconds=0),Duration(seconds=1.0))
             
             global_point = self.tf_buffer.transform(local_point, "odom")
@@ -190,6 +187,27 @@ class DetectObstacles(Node):
             self.get_logger().error("error!")
             return 0.0,0.0
 
+    '''
+    A function to convert scan ranges to global points
+    '''
+    def scan_to_pose(self, range_val, theta):
+        local_x = range_val * math.cos(theta)
+        local_y = range_val * math.sin(theta)
+
+        global_x,global_y = self.transform_point(local_x,local_y)
+        global_theta = math.atan2(global_y - self.robot_y, global_x - self.robot_x)
+
+        return global_x, global_y, global_theta
+    
+    '''
+    A function to compute vector between two points
+    '''
+    def compute_vector(self, vect1, vect2):
+        return np.arctan2((vect2[1] - vect1[1]),(vect2[0] - vect1[0]))
+    
+    '''
+    A helper function to get distance between two points
+    '''
     def get_distance(self,x1,y1,x2,y2):
         return math.sqrt((x2-x1)**2 + (y2-y1)**2)
     
