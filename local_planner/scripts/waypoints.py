@@ -40,7 +40,7 @@ class IdealWaypoint(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.range_data = []
-        self.goal = (5.0,4.0)
+        self.goal = (4.0,3.0)
 
         self.robot_x = 0.0
         self.robot_y = 0.0
