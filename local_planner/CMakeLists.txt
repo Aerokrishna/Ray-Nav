@@ -16,6 +16,7 @@ install(DIRECTORY
 install(PROGRAMS
   scripts/obstacles.py
   scripts/ipc_controller.py
+  scripts/controller.py
   scripts/waypoints.py
   DESTINATION lib/${PROJECT_NAME}
 )

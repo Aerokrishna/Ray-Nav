@@ -48,8 +48,8 @@ class IPCController(Node):
         else:
             sigma = rel_bearing
 
-        K_1 = 0.4
-        K_2 = 0.2
+        K_1 = 0.2
+        K_2 = 0.1
 
         distance = np.linalg.norm(pose[:2] - target)
         v = -K_1 * np.tanh(distance) * np.sign(np.cos(rel_bearing))

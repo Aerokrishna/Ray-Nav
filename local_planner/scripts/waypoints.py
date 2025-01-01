@@ -13,6 +13,7 @@ from rclpy.time import Time
 from nav_msgs.msg import Odometry
 import math
 from local_planner_interfaces.msg import Obstacle, Waypoint
+from geometry_msgs.msg import Pose
 from tf_transformations import euler_from_quaternion
 import numpy as np
 import time
@@ -22,14 +23,17 @@ class IdealWaypoint(Node):
         super().__init__('waypoints')
 
         # publishers and subscribers initialization
-        self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
-        self.obstacle_subscriber = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
-        self.odom_subscriber = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
+        # self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
+        # self.odom_subscriber = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
+
+        self.drone_lidar_subscriber = self.create_subscription(LaserScan,'/drone/scan',self.scan_callback,10)
+        self.drone_odom_subscriber = self.create_subscription(Pose,'/drone/gt_pose',self.drone_odom_callback,10)
+
         self.obs_subscriber = self.create_subscription(Obstacle,'/obstacles',self.obstacle_callback,10)
         self.marker_publisher_ = self.create_publisher(Marker,'/visualization_marker',10)
         self.waypoint_publisher_ = self.create_publisher(Waypoint,'/waypoints',10)
         
-        self.marker_timer_ = self.create_timer(0.1, self.marker_timer)
+        self.marker_timer_ = self.create_timer(0.3, self.marker_timer)
 
         self.waypoint_timer_ = self.create_timer(0.1, self.waypoint_timer)
         self.tf_timer = self.create_timer(0.1, self.transform_point)
@@ -40,7 +44,7 @@ class IdealWaypoint(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.range_data = []
-        self.goal = (4.0,3.0)
+        self.goal = (5.0,5.0)
 
         self.robot_x = 0.0
         self.robot_y = 0.0
@@ -53,6 +57,7 @@ class IdealWaypoint(Node):
 
         self.obstacle_x = []
         self.obstacle_y = []
+        self.odom_points = []
 
         self.cnt = 0
 
@@ -67,6 +72,8 @@ class IdealWaypoint(Node):
     def obstacle_callback(self,obs_msg: Obstacle):
         self.obstacle_x = obs_msg.obstacles_x
         self.obstacle_y = obs_msg.obstacles_y
+
+        # print(self.obstacle_x,self.obstacle_y)
 
     '''
     A function to publish the waypoint
@@ -103,7 +110,7 @@ class IdealWaypoint(Node):
             gx = self.robot_x + 2 * np.cos(goal_or)
             gy = self.robot_y + 2 * np.sin(goal_or)
 
-            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 2.5:
+            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 1.0:
                 gx,gy = self.goal
 
             return gx,gy
@@ -117,7 +124,7 @@ class IdealWaypoint(Node):
             obs_x = self.obstacle_x[i]
             obs_y = self.obstacle_y[i]
 
-            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) > 1.5:
+            if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) > 1.0:
                 obs_or = self.compute_vector((self.robot_x,self.robot_y),(obs_x,obs_y))
 
                 obs_x = self.robot_x + np.cos(obs_or)
@@ -202,54 +209,104 @@ class IdealWaypoint(Node):
         w = odom.pose.pose.orientation.w
 
         self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
+    
+    def drone_odom_callback(self, odom: Pose):
+        self.robot_x = odom.position.x
+        self.robot_y = odom.position.y
+
+        x = odom.orientation.x
+        y = odom.orientation.y
+        z = odom.orientation.z
+        w = odom.orientation.w
+
+        self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
 
     # function to publish visualization points on Rviz
     def marker_timer(self):
         marker_msg = Marker()
         marker_msg.header.frame_id = "/odom" # wrt which frame we are taking the coordinates
         marker_msg.header.stamp = self.get_clock().now().to_msg()
-        marker_msg.type = Marker.SPHERE
+        # marker_msg.type = Marker.SPHERE
     
-        marker_msg.scale.x = 0.09
-        marker_msg.scale.y = 0.09
-        marker_msg.scale.z = 0.09
+        # marker_msg.scale.x = 0.13
+        # marker_msg.scale.y = 0.13
+        # marker_msg.scale.z = 0.13
 
-        marker_msg.color.r = 0.0
-        marker_msg.color.g = 255.0
-        marker_msg.color.b = 125.0
-        marker_msg.color.a = 1.0
-
-        marker_msg.pose.position.x = self.ox
-        marker_msg.pose.position.y = self.oy
-        marker_msg.pose.orientation.w = 1.0
-
-        marker_msg.id = 1
-        self.marker_publisher_.publish(marker_msg)
+        # marker_msg.color.r = 0.0
+        # marker_msg.color.g = 255.0
+        # marker_msg.color.b = 125.0
+        # marker_msg.color.a = 1.0
 
         # for i in range(len(self.obstacle_x)):
           
         #     marker_msg.pose.position.x = self.obstacle_x[i]
         #     marker_msg.pose.position.y = self.obstacle_y[i]
+        #     marker_msg.pose.position.z = 2.1
+
         #     marker_msg.pose.orientation.w = 1.0
 
         #     marker_msg.id = i+2
         #     self.marker_publisher_.publish(marker_msg)
         
-        marker_msg.scale.x = 0.09
-        marker_msg.scale.y = 0.09
-        marker_msg.scale.z = 0.09
+        marker_msg.type = Marker.SPHERE
+    
+        marker_msg.scale.x = 0.13
+        marker_msg.scale.y = 0.13
+        marker_msg.scale.z = 0.13
 
-        marker_msg.color.r = 125.0
+        marker_msg.color.r = 0.0
         marker_msg.color.g = 255.0
         marker_msg.color.b = 0.0
         marker_msg.color.a = 1.0
 
         marker_msg.pose.position.x = self.wpx
         marker_msg.pose.position.y = self.wpy
+        marker_msg.pose.position.z = 2.10
+
         marker_msg.pose.orientation.w = 1.0
 
-        marker_msg.id = 0
-        self.marker_publisher_.publish(marker_msg)
+        marker_msg.id = 1
+        # self.marker_publisher_.publish(marker_msg)
+
+        # marker_msg.scale.x = 0.09
+        # marker_msg.scale.y = 0.09
+        # marker_msg.scale.z = 0.09
+
+        # marker_msg.color.r = 0.0
+        # marker_msg.color.g = 125.0
+        # marker_msg.color.b = 255.0
+        # marker_msg.color.a = 1.0
+
+        # marker_msg.pose.position.x = self.wpx
+        # marker_msg.pose.position.y = self.wpy
+        # marker_msg.pose.position.z = 2.10
+
+        # marker_msg.pose.orientation.w = 1.0
+
+        # marker_msg.id = 0
+        # self.marker_publisher_.publish(marker_msg)
+
+        marker_msg.type = Marker.SPHERE
+    
+        marker_msg.scale.x = 0.06
+        marker_msg.scale.y = 0.06
+        marker_msg.scale.z = 0.06
+
+        marker_msg.color.r = 255.0
+        marker_msg.color.g = 125.0
+        marker_msg.color.b = 0.0
+        marker_msg.color.a = 1.0
+
+        self.odom_points.append((self.robot_x,self.robot_y))
+
+        for i in range(len(self.odom_points)):
+            marker_msg.pose.position.x = self.odom_points[i][0]
+            marker_msg.pose.position.y = self.odom_points[i][1]
+            marker_msg.pose.orientation.w = 1.0
+        
+            marker_msg.id = i + 1
+
+            self.marker_publisher_.publish(marker_msg)
               
         
     # tranformation function

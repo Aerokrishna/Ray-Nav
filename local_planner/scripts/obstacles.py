@@ -11,6 +11,7 @@ from tf2_ros.transform_broadcaster import TransformBroadcaster
 from rclpy.duration import Duration
 from rclpy.time import Time
 from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Pose
 import math
 from tf_transformations import euler_from_quaternion
 from local_planner_interfaces.msg import Obstacle
@@ -21,22 +22,23 @@ class DetectObstacles(Node):
         super().__init__('obstacles')
 
         # publishers and subscribers initialization
-        self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
-        self.odom_subscriber = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
+        # self.subscription = self.create_subscription(LaserScan,'/scan',self.scan_callback,10)
+        # self.odom_subscriber = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
+
+        self.drone_lidar_subscriber = self.create_subscription(LaserScan,'/drone/scan',self.scan_callback,10)
+        self.drone_odom_subscriber = self.create_subscription(Pose,'/drone/gt_pose',self.drone_odom_callback,10)
+
         self.marker_publisher_ = self.create_publisher(Marker,'visualization_marker',10)
         self.obstacle_publisher_ = self.create_publisher(Obstacle,'obstacles',10)
         
-        # self.marker_timer = self.create_timer(0.1, self.marker_timer)
-        self.tf_timer = self.create_timer(0.1, self.transform_point)
-
-        # transformation 
+        # self.marker_timer = self.create_tsafe_wp_x
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.obstacle_x = []
         self.obstacle_y = []
-        self.inf_radius = 0.3
+        self.inf_radius = 1.4
 
         self.robot_yaw = 0.0
         self.robot_x = 0.0
@@ -47,7 +49,6 @@ class DetectObstacles(Node):
     '''
     A function to process scan data and publish obstacle edges
     '''
-
     def scan_callback(self, laser_msg : LaserScan):
         self.range_data = laser_msg.ranges
         self.angle_increament = laser_msg.angle_increment
@@ -72,6 +73,8 @@ class DetectObstacles(Node):
 
                 if result == True:
                     # means this point is safe
+                    self.get_logger().info(f'{obs_range, obs_theta}')
+
                     obs_x, obs_y = self.scan_to_pose(obs_range, obs_theta)[:2]
                     self.obstacle_x.append(obs_x)
                     self.obstacle_y.append(obs_y)
@@ -91,38 +94,44 @@ class DetectObstacles(Node):
         obs_msg = Obstacle()
         obs_msg.obstacles_x = self.obstacle_x
         obs_msg.obstacles_y = self.obstacle_y
+        # print(self.obstacle_x, self.obstacle_y)
 
         self.obstacle_publisher_.publish(obs_msg)
 
     '''
     A function to check if the obstacle edge is big enough to pass through
     '''
-    def check_inflation(self, point_range, theta, side):
+    def check_inflation(self, wp_range, theta, side):
         
         scan_or = np.rad2deg(theta)
         scan_index = round(scan_or)
-        index = round(np.rad2deg(0.6/point_range))
-        # a =[]
+
+        # theta = arc_length/ range
+        # a = []
+        index = round(np.rad2deg(self.inf_radius/wp_range))
         safe = 0
-        wp_range = point_range
         wp_theta = 0
 
-        for i in range(scan_index ,scan_index + (side * index), side):
+        # based on the side we count back in the array or up the array
+        for i in range(scan_index + side,scan_index + (side * index), side):
+            
+            # to account for 0 to 360 degree transition
             if i > len(self.range_data)-1:
                 i -= len(self.range_data)
 
             if i == int((scan_index + (side * (index/2)))):
                 wp_theta = self.angle_min + (i * self.angle_increament)
 
-            if self.range_data[i] < point_range:
-                safe+=1
             # a.append(self.range_data[i])
-        if safe <= 1:
+            # if the arc is smaller than the radius of the robot, it is not safe
+            # if data in that window is less than max range, then the robot will not be able to pass through the gap
+            if self.range_data[i] < wp_range + 0.5:
+                safe+=1
+        if safe < 1:
             return [True, wp_range, wp_theta]
 
         return [False, wp_range, wp_theta]
 
-    
     '''
     Odometry Callback
     '''
@@ -137,11 +146,24 @@ class DetectObstacles(Node):
         self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
 
     '''
+    Drone Odometry Callback
+    '''
+    def drone_odom_callback(self, odom: Pose):
+        self.robot_x = odom.position.x
+        self.robot_y = odom.position.y
+        x = odom.orientation.x
+        y = odom.orientation.y
+        z = odom.orientation.z
+        w = odom.orientation.w
+
+        self.robot_yaw = euler_from_quaternion([x,y,z,w])[2]
+
+    '''
     Visualization timer
     '''
     def marker_timer(self):
         marker_msg = Marker()
-        marker_msg.header.frame_id = "/odom" # wrt which frame we are taking the coordinates
+        marker_msg.header.frame_id = "odom" # wrt which frame we are taking the coordinates
         marker_msg.header.stamp = self.get_clock().now().to_msg()
         marker_msg.type = Marker.SPHERE
     
@@ -155,12 +177,12 @@ class DetectObstacles(Node):
         marker_msg.color.a = 1.0
 
         for i in range(len(self.obstacle_x)):
-          
+            # print(self.obstacle_x[i])
             marker_msg.pose.position.x = self.obstacle_x[i]
             marker_msg.pose.position.y = self.obstacle_y[i]
             marker_msg.pose.orientation.w = 1.0
 
-            marker_msg.id = i+1
+            marker_msg.id = i
             self.marker_publisher_.publish(marker_msg)
 
     '''

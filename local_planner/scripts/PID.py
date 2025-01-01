@@ -8,8 +8,8 @@ class PIDController():
         self.Kp_vel = 2
         self.Kp_theta = 6
 
-        self.vel_limit = 0.6
-        self.w_limit  = 0.8
+        self.vel_limit = 0.15
+        self.w_limit  = 0.3
 
         self.error_x = 0.0
         self.error_y = 0.0

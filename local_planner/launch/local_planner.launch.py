@@ -53,10 +53,16 @@ def generate_launch_description():
     # )
 
     # Additional nodes from 'my_package'
-    controller = Node(
+    ipc_controller = Node(
         package='local_planner',
         executable='ipc_controller.py',
         name='ipc_controller',
+        output='screen',
+    )
+    controller = Node(
+        package='local_planner',
+        executable='controller.py',
+        name='controller',
         output='screen',
     )
 
@@ -99,11 +105,11 @@ def generate_launch_description():
     # ld.add_action(spawn_turtlebot_cmd)
 
     # Add the additional nodes
-    ld.add_action(controller)
+    # ld.add_action(controller)
     ld.add_action(obstacle_detection)
     ld.add_action(waypoint_computer)
 
     # Add RViz
-    ld.add_action(rviz_node)
+    # ld.add_action(rviz_node)
 
     return ld
