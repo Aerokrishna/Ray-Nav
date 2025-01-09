@@ -103,12 +103,12 @@ class IdealWaypoint(Node):
     '''
     def get_waypoint(self):
 
-        if self.get_goal_ray(self.goal[0], self.goal[1]):
+        if self.get_goal_ray():
             # self.get_logger().info("GOAL MODE ACTIVATED")
             goal_or = self.compute_vector((self.robot_x,self.robot_y),(self.goal[0],self.goal[1]))
 
-            gx = self.robot_x + 2 * np.cos(goal_or)
-            gy = self.robot_y + 2 * np.sin(goal_or)
+            gx = self.robot_x + np.cos(goal_or)
+            gy = self.robot_y + np.sin(goal_or)
 
             if self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1]) < 1.0:
                 gx,gy = self.goal
@@ -153,15 +153,15 @@ class IdealWaypoint(Node):
     '''
     To check if the path to goal is obstacle free or not
     '''
-    def get_goal_ray(self,wp_x, wp_y):
+    def get_goal_ray(self):
         # self.get_logger().info("GET RAY")
-        r = 2
+        r = 1.5
         k = self.get_distance(self.robot_x,self.robot_y,self.goal[0],self.goal[1])
-        wp_or = self.compute_vector((self.robot_x, self.robot_y),(wp_x,wp_y))
+        wp_or = self.compute_vector((self.robot_x, self.robot_y),(self.goal[0], self.goal[1]))
 
-        if k < 2:
+        if k < 1:
             r = k
-        index = 8
+        index = 30
 
         scan_or = wp_or - self.robot_yaw
         if scan_or < 0:
@@ -226,27 +226,27 @@ class IdealWaypoint(Node):
         marker_msg = Marker()
         marker_msg.header.frame_id = "/odom" # wrt which frame we are taking the coordinates
         marker_msg.header.stamp = self.get_clock().now().to_msg()
-        # marker_msg.type = Marker.SPHERE
+        marker_msg.type = Marker.SPHERE
     
-        # marker_msg.scale.x = 0.13
-        # marker_msg.scale.y = 0.13
-        # marker_msg.scale.z = 0.13
+        marker_msg.scale.x = 0.13
+        marker_msg.scale.y = 0.13
+        marker_msg.scale.z = 0.13
 
-        # marker_msg.color.r = 0.0
-        # marker_msg.color.g = 255.0
-        # marker_msg.color.b = 125.0
-        # marker_msg.color.a = 1.0
+        marker_msg.color.r = 0.0
+        marker_msg.color.g = 255.0
+        marker_msg.color.b = 125.0
+        marker_msg.color.a = 1.0
 
-        # for i in range(len(self.obstacle_x)):
+        for i in range(len(self.obstacle_x)):
           
-        #     marker_msg.pose.position.x = self.obstacle_x[i]
-        #     marker_msg.pose.position.y = self.obstacle_y[i]
-        #     marker_msg.pose.position.z = 2.1
+            marker_msg.pose.position.x = self.obstacle_x[i]
+            marker_msg.pose.position.y = self.obstacle_y[i]
+            marker_msg.pose.position.z = 2.1
 
-        #     marker_msg.pose.orientation.w = 1.0
+            marker_msg.pose.orientation.w = 1.0
 
-        #     marker_msg.id = i+2
-        #     self.marker_publisher_.publish(marker_msg)
+            marker_msg.id = i+2
+            self.marker_publisher_.publish(marker_msg)
         
         marker_msg.type = Marker.SPHERE
     
@@ -266,7 +266,7 @@ class IdealWaypoint(Node):
         marker_msg.pose.orientation.w = 1.0
 
         marker_msg.id = 1
-        # self.marker_publisher_.publish(marker_msg)
+        self.marker_publisher_.publish(marker_msg)
 
         # marker_msg.scale.x = 0.09
         # marker_msg.scale.y = 0.09
@@ -286,27 +286,27 @@ class IdealWaypoint(Node):
         # marker_msg.id = 0
         # self.marker_publisher_.publish(marker_msg)
 
-        marker_msg.type = Marker.SPHERE
+        # marker_msg.type = Marker.SPHERE
     
-        marker_msg.scale.x = 0.06
-        marker_msg.scale.y = 0.06
-        marker_msg.scale.z = 0.06
+        # marker_msg.scale.x = 0.06
+        # marker_msg.scale.y = 0.06
+        # marker_msg.scale.z = 0.06
 
-        marker_msg.color.r = 255.0
-        marker_msg.color.g = 125.0
-        marker_msg.color.b = 0.0
-        marker_msg.color.a = 1.0
+        # marker_msg.color.r = 255.0
+        # marker_msg.color.g = 125.0
+        # marker_msg.color.b = 0.0
+        # marker_msg.color.a = 1.0
 
-        self.odom_points.append((self.robot_x,self.robot_y))
+        # self.odom_points.append((self.robot_x,self.robot_y))
 
-        for i in range(len(self.odom_points)):
-            marker_msg.pose.position.x = self.odom_points[i][0]
-            marker_msg.pose.position.y = self.odom_points[i][1]
-            marker_msg.pose.orientation.w = 1.0
+        # for i in range(len(self.odom_points)):
+        #     marker_msg.pose.position.x = self.odom_points[i][0]
+        #     marker_msg.pose.position.y = self.odom_points[i][1]
+        #     marker_msg.pose.orientation.w = 1.0
         
-            marker_msg.id = i + 1
+        #     marker_msg.id = i + 1
 
-            self.marker_publisher_.publish(marker_msg)
+        #     self.marker_publisher_.publish(marker_msg)
               
         
     # tranformation function

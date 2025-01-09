@@ -54,7 +54,7 @@ class DetectObstacles(Node):
         self.angle_increament = laser_msg.angle_increment
         self.angle_min = laser_msg.angle_min
 
-        max_range = 5
+        max_range = 2
 
         self.obstacle_x = []
         self.obstacle_y = []
